@@ -107,20 +107,22 @@ def verify_token(token):
 
 # 检查登录状态
 def check_login_status():
-    if not cookies.ready():
-        st.stop()
-
     if 'login_status' not in st.session_state:
         st.session_state['login_status'] = False
 
-    # 尝试从cookie获取token
-    auth_token = cookies.get('auth_token')
-    if auth_token:
-        username = verify_token(auth_token)
-        if username and username in USER_CREDENTIALS:
-            st.session_state['login_status'] = True
-            st.session_state['username'] = username
-            st.session_state['saved_username'] = username
+    # 仅在 cookie 就绪时尝试从 cookie 获取 token
+    try:
+        if cookies.ready():
+            auth_token = cookies.get('auth_token')
+            if auth_token:
+                username = verify_token(auth_token)
+                if username and username in USER_CREDENTIALS:
+                    st.session_state['login_status'] = True
+                    st.session_state['username'] = username
+                    st.session_state['saved_username'] = username
+    except Exception:
+        # cookies 尚未就绪时忽略，视为未登录
+        pass
 
     return st.session_state['login_status']
 
@@ -131,24 +133,30 @@ def set_login_status(username, remember):
     st.session_state['username'] = username
     st.session_state['saved_username'] = username if remember else ''
 
-    if remember:
-        # 生成并保存token到cookie
-        auth_token = generate_token(username)
-        cookies['auth_token'] = auth_token
-    else:
-        # 如果不记住登录状态，清除cookie
-        if 'auth_token' in cookies:
-            del cookies['auth_token']
-    cookies.save()
+    try:
+        if remember:
+            # 生成并保存token到cookie
+            auth_token = generate_token(username)
+            cookies['auth_token'] = auth_token
+        else:
+            # 如果不记住登录状态，清除cookie
+            if 'auth_token' in cookies:
+                del cookies['auth_token']
+        cookies.save()
+    except Exception:
+        pass
 
 
 # 获取保存的用户名
 def get_saved_credentials():
-    auth_token = cookies.get('auth_token')
-    if auth_token:
-        username = verify_token(auth_token)
-        if username:
-            return username, ''
+    try:
+        auth_token = cookies.get('auth_token')
+        if auth_token:
+            username = verify_token(auth_token)
+            if username:
+                return username, ''
+    except Exception:
+        pass
     return st.session_state.get('saved_username', ''), ''
 
 
@@ -254,40 +262,6 @@ st.markdown(
         font-size: 3.5rem;
         margin-bottom: 0.5rem;
         text-align: center;
-    }
-    /* Pro 版链接 - 与退出登录按钮同高同风格 */
-    a.pro-link {
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
-        padding: 0.5rem 2rem;
-        background: linear-gradient(135deg, #5b6bc0 0%, #7c4dff 100%);
-        color: #fff !important;
-        text-decoration: none;
-        border-radius: 20px;
-        font-size: 1rem;
-        font-weight: 500;
-        transition: all 0.3s ease;
-        border: none;
-        box-sizing: border-box;
-        min-height: 2.25rem;
-        line-height: 1.5;
-        white-space: nowrap;
-    }
-    a.pro-link:hover {
-        box-shadow: 0 2px 5px rgba(0,0,0,0.2);
-        color: #fff !important;
-    }
-    .pro-link-wrap {
-        display: flex;
-        align-items: center;
-        justify-content: flex-start;
-        margin-left: 0.5rem;
-        min-width: 0;
-        overflow: hidden;
-    }
-    .pro-link-wrap .pro-link {
-        max-width: 100%;
     }
     </style>
     """,
@@ -516,15 +490,16 @@ def logout():
     st.session_state.pop('saved_username', None)
 
     # 清除cookie
-    if 'auth_token' in cookies:
-        del cookies['auth_token']
-    cookies.save()
+    try:
+        if 'auth_token' in cookies:
+            del cookies['auth_token']
+        cookies.save()
+    except Exception:
+        pass
 
     st.rerun()
 
 
-# Pro 版文档链接（登录后展示）
-PRO_VERSION_URL = "#"
 
 
 # 主要内容
@@ -539,18 +514,8 @@ def main_page():
             unsafe_allow_html=True,
         )
     with head_right:
-        # 两列分别放退出登录、Pro 版，靠右对齐
-        sub_col_logout, sub_col_pro = st.columns([1.3, 1.5])
-        with sub_col_logout:
-            if st.button("退出登录", key="logout_button", use_container_width=True):
-                logout()
-        with sub_col_pro:
-            st.markdown(
-                '<div class="pro-link-wrap">'
-                '<a href="' + PRO_VERSION_URL + '" target="_blank" rel="noopener noreferrer" class="pro-link">开源版 VS Pro 版</a>'
-                '</div>',
-                unsafe_allow_html=True
-            )
+        if st.button("退出登录", key="logout_button", use_container_width=True):
+            logout()
 
     current_date = datetime.date.today()
     start_date_default = current_date - datetime.timedelta(days=7)
