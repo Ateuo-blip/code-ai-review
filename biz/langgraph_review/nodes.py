@@ -117,20 +117,20 @@ def fetch_data(state: ReviewState) -> dict:
 
 def _fetch_gitlab_data(gitlab_url, project_id, access_token):
     encoded = requests.utils.quote(project_id, safe="")
-    base = f\"{gitlab_url}/api/v4/projects/{encoded}\"
-    headers = {\"Private-Token\": access_token}
+    base = f"{gitlab_url}/api/v4/projects/{encoded}"
+    headers = {"Private-Token": access_token}
     branches, commits = [], []
     try:
-        resp = requests.get(f\"{base}/repository/branches?per_page=50\", headers=headers, verify=False, timeout=30)
-        branches = [b[\"name\"] for b in resp.json()]
+        resp = requests.get(f"{base}/repository/branches?per_page=50", headers=headers, verify=False, timeout=30)
+        branches = [b["name"] for b in resp.json()]
     except Exception as e:
-        print(f\"[fetch_data] branch fetch failed: {e}\")
+        print(f"[fetch_data] branch fetch failed: {e}")
     try:
-        resp = requests.get(f\"{base}/repository/commits?per_page=30\", headers=headers, verify=False, timeout=30)
-        commits = [{\"short_id\": c.get(\"short_id\", c[\"id\"][:8]), \"title\": c[\"title\"], \"author_name\": c.get(\"author_name\", \"unknown\")} for c in resp.json()]
+        resp = requests.get(f"{base}/repository/commits?per_page=30", headers=headers, verify=False, timeout=30)
+        commits = [{"short_id": c.get("short_id", c["id"][:8]), "title": c["title"], "author_name": c.get("author_name", "unknown")} for c in resp.json()]
     except Exception as e:
-        print(f\"[fetch_data] commit fetch failed: {e}\")
-    return {\"branches\": branches, \"commits\": commits}
+        print(f"[fetch_data] commit fetch failed: {e}")
+    return {"branches": branches, "commits": commits}
 def _fetch_mr_data(state):
     """拉取 MR 的源分支名 + MR 中的提交列表"""
     gitlab_url = state["gitlab_url"]
@@ -357,7 +357,7 @@ def _post_to_gitlab(event_type, gitlab_url, project_id, token, report, state):
         print(f"[aggregate] post comment exception: {e}")
 
 def aggregate_node(state: ReviewState) -> dict:
-    """汇总分支和提交规范审查结果"""
+    """汇总分支和提交规范审查结果（不 post GitLab，仅收集）"""
     br = state.get("branch_review", [])
     cr = state.get("commit_msg_review", [])
 
@@ -375,6 +375,44 @@ def aggregate_node(state: ReviewState) -> dict:
     parts.append("\n---\n*LangGraph 并行图自动生成*")
     report = "\n".join(parts)
     print(f"[aggregate] 汇总完成（分支审查 + 提交信息审查）")
+
+    # 返回报告，供 final_aggregate 使用
+    return {"partial_report": report}
+
+
+def check_shas_node(state: ReviewState) -> dict:
+    """检查是否有可疑提交，决定是否触发 diff_review fan-out"""
+    suspicious_shas = state.get("suspicious_shas", [])
+    if suspicious_shas:
+        print(f"[check_shas] 触发 diff_review，{len(suspicious_shas)} 条可疑提交")
+    else:
+        print("[check_shas] 无可疑提交，跳过 diff_review")
+    return {}
+
+
+def final_aggregate_node(state: ReviewState) -> dict:
+    """最终汇总：收集所有审查结果，一次 post 到 GitLab"""
+    br = state.get("branch_review", [])
+    cr = state.get("commit_msg_review", [])
+    dr = state.get("diff_reviews", [])
+
+    parts = ["# 代码规范审查报告\n"]
+
+    if br:
+        parts.append("## 一、分支命名规范\n" + br[0] + "\n")
+
+    if cr:
+        parts.append("## 二、提交信息规范\n" + cr[0] + "\n")
+
+    if dr:
+        parts.append("## 三、代码 Diff 审查\n" + "\n".join(dr) + "\n")
+
+    if not br and not cr and not dr:
+        parts.append("> 无审查结果\n")
+
+    parts.append("\n---\n*LangGraph 并行图自动生成*")
+    report = "\n".join(parts)
+    print(f"[final_aggregate] 汇总完成（分支 + 提交 + Diff）")
 
     event_type = state.get("event_type", "")
     gitlab_url = state.get("gitlab_url", "")
