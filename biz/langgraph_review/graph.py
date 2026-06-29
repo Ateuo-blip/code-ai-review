@@ -69,7 +69,17 @@ def build_graph():
     def route_from_check(state):
         suspicious_shas = state.get("suspicious_shas", [])
         if suspicious_shas:
-            return [Send("diff_review", {"current_sha": s}) for s in suspicious_shas]
+            # 把完整上下文传给每个 diff_review 实例
+            return [
+                Send("diff_review", {
+                    "current_sha": s,
+                    "gitlab_url": state.get("gitlab_url", ""),
+                    "project_id": state.get("project_id", ""),
+                    "access_token": state.get("access_token", ""),
+                    "commits": state.get("commits", []),
+                })
+                for s in suspicious_shas
+            ]
         return "final_aggregate"
 
     graph.add_conditional_edges(
